@@ -1,0 +1,141 @@
+.file-upload-container {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.file-upload-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 3rem 2rem;
+  text-align: center;
+  background-color: var(--bg-gray-50);
+  transition: all 0.3s ease;
+  cursor: pointer;
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-upload-dropzone:hover {
+  border-color: var(--primary-color);
+  background-color: var(--bg-white);
+}
+
+.file-upload-dropzone.dragging {
+  border-color: var(--primary-color);
+  background-color: var(--bg-white);
+  box-shadow: var(--shadow-lg);
+}
+
+.file-upload-dropzone.uploading {
+  cursor: not-allowed;
+  background-color: var(--bg-gray-100);
+}
+
+.upload-content h3 {
+  color: var(--text-primary);
+  margin: 1rem 0 0.5rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.upload-content p {
+  color: var(--text-secondary);
+  margin: 0 0 2rem 0;
+  font-size: 0.875rem;
+}
+
+.upload-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.upload-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.upload-progress p {
+  color: var(--text-primary);
+  font-weight: 500;
+  margin: 0;
+}
+
+.progress-bar {
+  width: 200px;
+  height: 8px;
+  background-color: var(--bg-gray-100);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--primary-color);
+  transition: width 0.3s ease;
+}
+
+.upload-spinner {
+  margin-bottom: 0.5rem;
+}
+
+.supported-formats {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background-color: var(--bg-white);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+}
+
+.supported-formats h4 {
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+}
+
+.format-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+}
+
+.format-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 1rem;
+  background-color: var(--bg-gray-50);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.format-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.format-item span:last-child {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+@media (max-width: 768px) {
+  .file-upload-dropzone {
+    padding: 2rem 1rem;
+    min-height: 250px;
+  }
+  
+  .upload-content h3 {
+    font-size: 1.125rem;
+  }
+  
+  .format-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
