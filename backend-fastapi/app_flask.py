@@ -29,7 +29,8 @@ def process_upload_background(upload_id, file_path, mime_type):
     """Background task to process uploaded file"""
     try:
         # Update status to processing
-        supabase_service.update_upload_status(upload_id, "processing")
+        # Update status not needed for playbook_files
+        # supabase_service.update_upload_status(upload_id, "processing")
         
         # Extract content
         import asyncio
@@ -38,11 +39,40 @@ def process_upload_background(upload_id, file_path, mime_type):
         
         extracted_data = loop.run_until_complete(extract_content_from_file(file_path, mime_type))
         
-        # For demo, we'll just store the blocks as-is (without AI processing)
-        processed_blocks = extracted_data["blocks"]
+        # Step 2: Classify blocks into playbook assets using AI
+        from services.ai_processor import classify_content_blocks, generate_embeddings, generate_playbook_suggestions
         
-        # Store content blocks
-        supabase_service.create_content_blocks(upload_id, processed_blocks)
+        print(f"📝 Extracted {len(extracted_data['blocks'])} content blocks")
+        
+        # Classify blocks into playbook asset types
+        classified_blocks = classify_content_blocks(extracted_data["blocks"])
+        print(f"🏷️ Classified blocks into playbook assets")
+        
+        # Step 3: Generate embeddings for each block
+        blocks_with_embeddings = generate_embeddings(classified_blocks)
+        print(f"🧠 Generated embeddings for {len(blocks_with_embeddings)} blocks")
+        
+        # Step 4: Generate playbook structure suggestions
+        playbook_suggestions = generate_playbook_suggestions(blocks_with_embeddings)
+        print(f"📋 Generated playbook structure with {len(playbook_suggestions['sections'])} sections")
+        
+        # Step 5: Store embeddings and update playbook with tags
+        all_tags = set()
+        for block in blocks_with_embeddings:
+            all_tags.update(block.get("tags", []))
+        
+        # Store embeddings in database
+        supabase_service.store_embeddings(upload_id, blocks_with_embeddings)
+        
+        # Update playbook with extracted tags
+        # First get the playbook ID associated with this file
+        file_data = supabase_service.get_playbook_file_by_id(upload_id)
+        if file_data.get("success") and file_data.get("data"):
+            playbook_id = file_data["data"].get("playbook_id")
+            if playbook_id:
+                supabase_service.update_playbook_tags(playbook_id, list(all_tags))
+        
+        print(f"💾 Stored {len(blocks_with_embeddings)} embeddings and {len(all_tags)} tags")
         
         # Update upload status
         supabase_service.update_upload_status(upload_id, "completed")
@@ -57,7 +87,8 @@ def process_url_background(upload_id, url):
     """Background task to process URL import"""
     try:
         # Update status to processing
-        supabase_service.update_upload_status(upload_id, "processing")
+        # Update status not needed for playbook_files
+        # supabase_service.update_upload_status(upload_id, "processing")
         
         # Extract content from URL
         import asyncio
@@ -70,7 +101,8 @@ def process_url_background(upload_id, url):
         processed_blocks = extracted_data["blocks"]
         
         # Store content blocks
-        supabase_service.create_content_blocks(upload_id, processed_blocks)
+        # Content blocks are not in schema - skipping for now
+        # supabase_service.create_content_blocks(upload_id, processed_blocks)
         
         # Update upload status
         supabase_service.update_upload_status(upload_id, "completed")
@@ -127,20 +159,34 @@ def upload_file():
             os.remove(file_path)
             return jsonify({"error": f"File upload failed: {upload_result['error']}"}), 500
         
-        # Create upload record in Supabase database
-        upload_data = {
+        # Create playbook file record in Supabase database
+        # First, create a default playbook if none exists
+        playbook_result = supabase_service.get_all_playbooks(limit=1)
+        if playbook_result["success"] and playbook_result["data"]:
+            playbook_id = playbook_result["data"][0]["id"]
+        else:
+            # Create a default playbook for uploaded files
+            default_playbook = {
+                "title": "Uploaded Files Playbook",
+                "description": "Default playbook for uploaded files",
+                "tags": ["uploads"],
+                "stage": "draft"
+            }
+            playbook_create_result = supabase_service.create_playbook(default_playbook)
+            if playbook_create_result["success"]:
+                playbook_id = playbook_create_result["data"]["id"]
+            else:
+                return jsonify({"error": "Failed to create playbook for file"}), 500
+
+        file_data = {
             "id": upload_id,
-            "filename": unique_filename,
-            "original_name": filename,
-            "file_path": upload_result["path"],
-            "file_size": file_size,
-            "mime_type": file.content_type,
-            "storage_url": upload_result["public_url"],
-            "status": "uploaded",
-            "created_at": datetime.utcnow().isoformat()
+            "file_name": filename,
+            "file_type": os.path.splitext(filename)[1].lower().replace('.', '') or 'txt',
+            "storage_path": upload_result["path"],
+            "playbook_id": playbook_id
         }
         
-        db_result = supabase_service.create_upload_record(upload_data)
+        db_result = supabase_service.create_playbook_file(file_data)
         
         if not db_result["success"]:
             os.remove(file_path)
@@ -155,13 +201,17 @@ def upload_file():
             "success": True,
             "upload_id": upload_id,
             "message": "File uploaded successfully, processing started",
-            "redirect_url": f"/playbook/{upload_id}"
+            "redirect_url": f"/playbook/{upload_id}",
+            "file_data": db_result.get("data", {})
         })
     
     except Exception as e:
         if 'file_path' in locals() and os.path.exists(file_path):
             os.remove(file_path)
-        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
+        import traceback
+        print(f"❌ Upload error: {str(e)}")
+        print(f"❌ Full traceback: {traceback.format_exc()}")
+        return jsonify({"error": f"Upload failed: {str(e)}", "details": traceback.format_exc()}), 500
 
 @app.route('/api/upload/url', methods=['POST'])
 def import_url():
@@ -186,7 +236,32 @@ def import_url():
             "created_at": datetime.utcnow().isoformat()
         }
         
-        db_result = supabase_service.create_upload_record(upload_data)
+        # Create a default playbook for URL content
+        playbook_result = supabase_service.get_all_playbooks(limit=1)
+        if playbook_result["success"] and playbook_result["data"]:
+            playbook_id = playbook_result["data"][0]["id"]
+        else:
+            default_playbook = {
+                "title": "URL Content Playbook",
+                "description": "Default playbook for URL content",
+                "tags": ["url", "web"],
+                "stage": "draft"
+            }
+            playbook_create_result = supabase_service.create_playbook(default_playbook)
+            if playbook_create_result["success"]:
+                playbook_id = playbook_create_result["data"]["id"]
+            else:
+                return jsonify({"error": "Failed to create playbook for URL"}), 500
+
+        file_data = {
+            "id": upload_id,
+            "file_name": url.split("/")[-1] or "webpage",
+            "file_type": "txt",
+            "storage_path": url,
+            "playbook_id": playbook_id
+        }
+        
+        db_result = supabase_service.create_playbook_file(file_data)
         
         if not db_result["success"]:
             return jsonify({"error": f"Database record creation failed: {db_result['error']}"}), 500
@@ -211,7 +286,7 @@ def get_upload_status(upload_id):
     """Get upload status and details"""
     
     try:
-        result = supabase_service.get_upload_by_id(upload_id)
+        result = supabase_service.get_playbook_file_by_id(upload_id)
         
         if not result["success"]:
             return jsonify({"error": result["error"]}), 404
@@ -222,10 +297,11 @@ def get_upload_status(upload_id):
         
         # Get blocks count if completed
         blocks_count = 0
-        if upload["status"] == "completed":
-            blocks_result = supabase_service.get_content_blocks(upload_id)
-            if blocks_result["success"]:
-                blocks_count = len(blocks_result["data"])
+        # playbook_files don't have status, so always show blocks count as 0
+        # Content blocks not in schema - return empty for now
+        blocks_result = {"success": True, "data": []}
+        if blocks_result["success"]:
+            blocks_count = len(blocks_result["data"])
         
         upload["blocks_extracted"] = blocks_count
         
@@ -239,7 +315,8 @@ def get_playbook_blocks(upload_id):
     """Get extracted content blocks for a playbook"""
     
     try:
-        result = supabase_service.get_content_blocks(upload_id)
+        # Content blocks not in schema - return empty for now
+        result = {"success": True, "data": []}
         
         if not result["success"]:
             return jsonify({"error": result["error"]}), 500
@@ -254,16 +331,16 @@ def get_dashboard_stats():
     """Get dashboard statistics"""
     
     try:
-        uploads_result = supabase_service.get_all_uploads(limit=100)
+        uploads_result = supabase_service.get_all_playbook_files(limit=100)
         
         if not uploads_result["success"]:
             return jsonify({"error": uploads_result["error"]}), 500
         
-        uploads = uploads_result["data"]
+        files = uploads_result["data"]
         
-        total_playbooks = len(uploads)
-        active_projects = len([u for u in uploads if u["status"] == "completed"])
-        total_size = sum(u.get("file_size", 0) for u in uploads)
+        total_playbooks = len(files)
+        active_projects = len(files)  # All files are considered active since no status field
+        total_size = 0  # file_size not in playbook_files schema
         
         return jsonify({
             "total_playbooks": total_playbooks,
@@ -280,7 +357,7 @@ def get_recent_playbooks():
     """Get recent playbooks"""
     
     try:
-        result = supabase_service.get_all_uploads(limit=5)
+        result = supabase_service.get_all_playbook_files(limit=5)
         
         if not result["success"]:
             return jsonify({"error": result["error"]}), 500
