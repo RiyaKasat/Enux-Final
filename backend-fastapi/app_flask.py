@@ -292,4 +292,7 @@ def get_recent_playbooks():
 
 if __name__ == "__main__":
     print("✅ Starting PlaybookOS Flask server...")
-    app.run(host='0.0.0.0', port=8001, debug=True)
+    port = int(os.getenv("FLASK_PORT", 8001))
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    debug = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+    app.run(host=host, port=port, debug=debug)
